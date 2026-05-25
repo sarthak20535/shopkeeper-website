@@ -88,17 +88,25 @@ export default function AdminDashboard() {
 
   async function saveProduct(e) {
     e.preventDefault();
-    const payload = { ...productForm, tab_id: Number(productForm.tab_id) };
-    if (editingProduct) {
-      await adminApi.updateProduct(editingProduct.id, payload);
-      flash('Product updated!');
-    } else {
-      await adminApi.createProduct(payload);
-      flash('Product added!');
+    if (!productForm.tab_id) {
+      flash('Please select a category first.');
+      return;
     }
-    setProductForm(EMPTY_PRODUCT);
-    setEditingProduct(null);
-    setProducts(await adminApi.getProducts());
+    const payload = { ...productForm, tab_id: productForm.tab_id };
+    try {
+      if (editingProduct) {
+        await adminApi.updateProduct(editingProduct.id, payload);
+        flash('Product updated!');
+      } else {
+        await adminApi.createProduct(payload);
+        flash('Product added!');
+      }
+      setProductForm(EMPTY_PRODUCT);
+      setEditingProduct(null);
+      setProducts(await adminApi.getProducts());
+    } catch (err) {
+      flash(err.message);
+    }
   }
 
   async function deleteProduct(id) {
@@ -233,6 +241,9 @@ export default function AdminDashboard() {
             <h2>{editingProduct ? 'Edit Product' : 'Add Product'}</h2>
             <p className="section-desc">Customize each product tile — name, image, size, colors, and more.</p>
 
+            {tabs.length === 0 ? (
+              <p className="section-desc">Add at least one category under <strong>Menu Categories</strong> before adding products.</p>
+            ) : (
             <form className="admin-form product-form" onSubmit={saveProduct}>
               <label>
                 Category
@@ -275,6 +286,7 @@ export default function AdminDashboard() {
                 {editingProduct && <button type="button" className="btn-outline" onClick={() => { setEditingProduct(null); setProductForm(EMPTY_PRODUCT); }}>Cancel</button>}
               </div>
             </form>
+            )}
 
             <h3>All Products ({products.length})</h3>
             <div className="admin-products-grid">

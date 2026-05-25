@@ -139,6 +139,10 @@ router.post('/products', async (req, res) => {
       tile_bg_color, tile_text_color, sort_order,
     } = req.body;
 
+    if (!tab_id || !mongoose.Types.ObjectId.isValid(tab_id)) {
+      return res.status(400).json({ error: 'A valid category (tab_id) is required' });
+    }
+
     const maxProduct = await Product.findOne({ tab_id }).sort({ sort_order: -1 });
     const product = await Product.create({
       tab_id,
