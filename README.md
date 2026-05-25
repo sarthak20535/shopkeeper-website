@@ -47,7 +47,9 @@ npm run dev:client
 1. You deploy **one website** to a public URL (e.g. `https://my-shop.onrender.com`)
 2. The **shopkeeper (admin)** logs in at `/admin`, sets shop name, categories, and products
 3. **Anyone visiting that URL** instantly sees what the admin configured — no login needed for visitors
-4. Data is saved in the **SQLite database** on the server (persists across restarts when using a persistent disk)
+4. Data is saved in the **SQLite database** on the server
+
+> **Free tier note:** Render’s free plan does not include persistent disks. Shop data and uploaded images may reset when the app redeploys or restarts. For permanent storage, upgrade to a paid plan with a disk, or we can switch the app to a hosted database (e.g. Turso/PostgreSQL).
 
 ```
 Shopkeeper (Admin)                    Visitors (Users)
@@ -71,14 +73,13 @@ Shopkeeper (Admin)                    Visitors (Users)
 5. Open `/admin`, log in with `admin` / `admin123`, **change the password** (see below)
 6. Share the main URL with customers
 
-The `render.yaml` includes a **persistent disk** so your database and uploaded images are not lost on restart.
+**Free tier:** Works without a paid disk. Data may be lost on redeploy/restart — fine for testing; use a paid disk or hosted DB for production.
 
 ### Environment variables (production)
 
 | Variable | Purpose |
 |----------|---------|
 | `JWT_SECRET` | Secret for admin login tokens (auto-generated on Render) |
-| `DATA_DIR` | Folder for `shop.db` and uploads (`/var/data` on Render) |
 | `NODE_ENV` | Set to `production` |
 | `PORT` | Set automatically by hosting platform |
 
