@@ -3,21 +3,15 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import path from 'path';
-import db from '../db.js';
-import { UPLOADS_DIR } from '../config.js';
+import mongoose from 'mongoose';
+import { Settings, Admin, Tab, Product, formatDoc } from '../models/index.js';
+import { saveUpload } from '../gridfs.js';
 import { authMiddleware, JWT_SECRET } from '../middleware/auth.js';
 
 const router = Router();
 
-const storage = multer.diskStorage({
-  destination: UPLOADS_DIR,
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, unique + path.extname(file.originalname));
-  },
-});
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (/^image\//.test(file.mimetype)) cb(null, true);
@@ -25,118 +19,198 @@ const upload = multer({
   },
 });
 
-router.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  const admin = db.prepare('SELECT * FROM admin WHERE username = ?').get(username);
-  if (!admin || !bcrypt.compareSync(password, admin.password_hash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const admin = await Admin.findOne({ username });
+    if (!admin || !bcrypt.compareSync(password, admin.password_hash)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const token = jwt.sign({ id: admin._id.toString(), username: admin.username }, JWT_SECRET, {
+      expiresIn: '7d',
+    });
+    res.json({ token, username: admin.username });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const token = jwt.sign({ id: admin.id, username: admin.username }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, username: admin.username });
 });
 
 router.use(authMiddleware);
 
-router.get('/settings', (_req, res) => {
-  res.json(db.prepare('SELECT * FROM settings WHERE id = 1').get());
-});
-
-router.put('/settings', (req, res) => {
-  const { website_name, shopkeeper_name, mobile, address, city, primary_color, accent_color } = req.body;
-  db.prepare(`
-    UPDATE settings SET
-      website_name = ?, shopkeeper_name = ?, mobile = ?, address = ?,
-      city = ?, primary_color = ?, accent_color = ?
-    WHERE id = 1
-  `).run(website_name, shopkeeper_name, mobile, address, city, primary_color, accent_color);
-  res.json(db.prepare('SELECT * FROM settings WHERE id = 1').get());
-});
-
-router.get('/tabs', (_req, res) => {
-  res.json(db.prepare('SELECT * FROM tabs ORDER BY sort_order, id').all());
-});
-
-router.post('/tabs', (req, res) => {
-  const { name, icon, sort_order } = req.body;
-  const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM tabs').get().m;
-  const result = db
-    .prepare('INSERT INTO tabs (name, icon, sort_order) VALUES (?, ?, ?)')
-    .run(name, icon || '📦', sort_order ?? maxOrder + 1);
-  res.status(201).json(db.prepare('SELECT * FROM tabs WHERE id = ?').get(result.lastInsertRowid));
-});
-
-router.put('/tabs/:id', (req, res) => {
-  const { name, icon, sort_order } = req.body;
-  const existing = db.prepare('SELECT * FROM tabs WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Tab not found' });
-  db.prepare('UPDATE tabs SET name = ?, icon = ?, sort_order = ? WHERE id = ?').run(
-    name ?? existing.name,
-    icon ?? existing.icon,
-    sort_order ?? existing.sort_order,
-    req.params.id
-  );
-  res.json(db.prepare('SELECT * FROM tabs WHERE id = ?').get(req.params.id));
-});
-
-router.delete('/tabs/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM tabs WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Tab not found' });
-  res.json({ success: true });
-});
-
-router.get('/products', (req, res) => {
-  const { tab_id } = req.query;
-  if (tab_id) {
-    return res.json(
-      db.prepare('SELECT * FROM products WHERE tab_id = ? ORDER BY sort_order, id').all(tab_id)
-    );
+router.get('/settings', async (_req, res) => {
+  try {
+    const settings = await Settings.findOne();
+    res.json(formatDoc(settings));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(db.prepare('SELECT * FROM products ORDER BY tab_id, sort_order, id').all());
 });
 
-router.post('/products', (req, res) => {
-  const {
-    tab_id, name, image_url, size, price, description,
-    tile_bg_color, tile_text_color, sort_order,
-  } = req.body;
-  const maxOrder = db
-    .prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM products WHERE tab_id = ?')
-    .get(tab_id).m;
-  const result = db.prepare(`
-    INSERT INTO products (tab_id, name, image_url, size, price, description, tile_bg_color, tile_text_color, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    tab_id, name, image_url || '', size || '', price || '', description || '',
-    tile_bg_color || '#ffffff', tile_text_color || '#1f2937', sort_order ?? maxOrder + 1
-  );
-  res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid));
+router.put('/settings', async (req, res) => {
+  try {
+    const { website_name, shopkeeper_name, mobile, address, city, primary_color, accent_color } = req.body;
+    const settings = await Settings.findOneAndUpdate(
+      {},
+      { website_name, shopkeeper_name, mobile, address, city, primary_color, accent_color },
+      { new: true, upsert: true }
+    );
+    res.json(formatDoc(settings));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.put('/products/:id', (req, res) => {
-  const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Product not found' });
-  const fields = ['tab_id', 'name', 'image_url', 'size', 'price', 'description', 'tile_bg_color', 'tile_text_color', 'sort_order'];
-  const updated = { ...existing, ...req.body };
-  db.prepare(`
-    UPDATE products SET tab_id=?, name=?, image_url=?, size=?, price=?, description=?,
-      tile_bg_color=?, tile_text_color=?, sort_order=? WHERE id=?
-  `).run(
-    updated.tab_id, updated.name, updated.image_url, updated.size, updated.price,
-    updated.description, updated.tile_bg_color, updated.tile_text_color, updated.sort_order,
-    req.params.id
-  );
-  res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));
+router.get('/tabs', async (_req, res) => {
+  try {
+    const tabs = await Tab.find().sort({ sort_order: 1, createdAt: 1 });
+    res.json(tabs.map(formatDoc));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.delete('/products/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Product not found' });
-  res.json({ success: true });
+router.post('/tabs', async (req, res) => {
+  try {
+    const { name, icon, sort_order } = req.body;
+    const maxTab = await Tab.findOne().sort({ sort_order: -1 });
+    const tab = await Tab.create({
+      name,
+      icon: icon || '📦',
+      sort_order: sort_order ?? (maxTab ? maxTab.sort_order + 1 : 0),
+    });
+    res.status(201).json(formatDoc(tab));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/upload', upload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({ url: `/uploads/${req.file.filename}` });
+router.put('/tabs/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Tab not found' });
+    }
+
+    const existing = await Tab.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Tab not found' });
+
+    const { name, icon, sort_order } = req.body;
+    existing.name = name ?? existing.name;
+    existing.icon = icon ?? existing.icon;
+    existing.sort_order = sort_order ?? existing.sort_order;
+    await existing.save();
+
+    res.json(formatDoc(existing));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/tabs/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Tab not found' });
+    }
+
+    const tab = await Tab.findByIdAndDelete(req.params.id);
+    if (!tab) return res.status(404).json({ error: 'Tab not found' });
+
+    await Product.deleteMany({ tab_id: tab._id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/products', async (req, res) => {
+  try {
+    const { tab_id } = req.query;
+    const filter = tab_id ? { tab_id } : {};
+    const products = await Product.find(filter).sort({ tab_id: 1, sort_order: 1, createdAt: 1 });
+    res.json(products.map(formatDoc));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/products', async (req, res) => {
+  try {
+    const {
+      tab_id, name, image_url, size, price, description,
+      tile_bg_color, tile_text_color, sort_order,
+    } = req.body;
+
+    const maxProduct = await Product.findOne({ tab_id }).sort({ sort_order: -1 });
+    const product = await Product.create({
+      tab_id,
+      name,
+      image_url: image_url || '',
+      size: size || '',
+      price: price || '',
+      description: description || '',
+      tile_bg_color: tile_bg_color || '#ffffff',
+      tile_text_color: tile_text_color || '#1f2937',
+      sort_order: sort_order ?? (maxProduct ? maxProduct.sort_order + 1 : 0),
+    });
+
+    res.status(201).json(formatDoc(product));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/products/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const existing = await Product.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+
+    const fields = [
+      'tab_id', 'name', 'image_url', 'size', 'price', 'description',
+      'tile_bg_color', 'tile_text_color', 'sort_order',
+    ];
+    for (const field of fields) {
+      if (req.body[field] !== undefined) {
+        existing[field] = req.body[field];
+      }
+    }
+    await existing.save();
+
+    res.json(formatDoc(existing));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/products/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/upload', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const ext = path.extname(req.file.originalname) || '.jpg';
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    const fileId = await saveUpload(req.file.buffer, filename, req.file.mimetype);
+
+    res.json({ url: `/api/public/files/${fileId}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

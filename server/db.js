@@ -1,58 +1,27 @@
-import Database from 'better-sqlite3';
+import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { DATABASE_PATH } from './config.js';
+import { Settings, Admin } from './models/index.js';
 
-const db = new Database(DATABASE_PATH);
+export async function connectDb() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error('MONGODB_URI environment variable is required');
+  }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    website_name TEXT DEFAULT 'My Shop',
-    shopkeeper_name TEXT DEFAULT '',
-    mobile TEXT DEFAULT '',
-    address TEXT DEFAULT '',
-    city TEXT DEFAULT '',
-    primary_color TEXT DEFAULT '#2563eb',
-    accent_color TEXT DEFAULT '#1e40af'
-  );
-
-  CREATE TABLE IF NOT EXISTS admin (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    username TEXT NOT NULL,
-    password_hash TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS tabs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    sort_order INTEGER DEFAULT 0,
-    icon TEXT DEFAULT '📦'
-  );
-
-  CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tab_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    image_url TEXT DEFAULT '',
-    size TEXT DEFAULT '',
-    price TEXT DEFAULT '',
-    description TEXT DEFAULT '',
-    tile_bg_color TEXT DEFAULT '#ffffff',
-    tile_text_color TEXT DEFAULT '#1f2937',
-    sort_order INTEGER DEFAULT 0,
-    FOREIGN KEY (tab_id) REFERENCES tabs(id) ON DELETE CASCADE
-  );
-`);
-
-const settingsCount = db.prepare('SELECT COUNT(*) as c FROM settings').get();
-if (settingsCount.c === 0) {
-  db.prepare('INSERT INTO settings (id) VALUES (1)').run();
+  await mongoose.connect(uri);
+  console.log('Connected to MongoDB');
+  await seedDefaults();
 }
 
-const adminCount = db.prepare('SELECT COUNT(*) as c FROM admin').get();
-if (adminCount.c === 0) {
-  const hash = bcrypt.hashSync('admin123', 10);
-  db.prepare('INSERT INTO admin (id, username, password_hash) VALUES (1, ?, ?)').run('admin', hash);
-}
+async function seedDefaults() {
+  const settingsCount = await Settings.countDocuments();
+  if (settingsCount === 0) {
+    await Settings.create({});
+  }
 
-export default db;
+  const adminCount = await Admin.countDocuments();
+  if (adminCount === 0) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    await Admin.create({ username: 'admin', password_hash: hash });
+  }
+}

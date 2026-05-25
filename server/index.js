@@ -2,8 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import './db.js';
-import { UPLOADS_DIR } from './config.js';
+import { connectDb } from './db.js';
 import publicRoutes from './routes/public.js';
 import adminRoutes from './routes/admin.js';
 
@@ -14,7 +13,6 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(UPLOADS_DIR));
 
 app.use('/api/public', publicRoutes);
 app.use('/api/admin', adminRoutes);
@@ -30,6 +28,16 @@ if (isProduction) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}${isProduction ? ' (production)' : ''}`);
-});
+async function start() {
+  try {
+    await connectDb();
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}${isProduction ? ' (production)' : ''}`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err.message);
+    process.exit(1);
+  }
+}
+
+start();

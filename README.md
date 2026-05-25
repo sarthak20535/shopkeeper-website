@@ -20,19 +20,35 @@ A customizable product catalog website for small shopkeepers. Visitors can brows
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express, SQLite
+- **Backend:** Node.js, Express, MongoDB (Atlas)
 - **Frontend:** React, Vite, React Router
+- **Storage:** MongoDB for shop data + GridFS for uploaded images (all persistent)
 
-## Quick Start
+## Quick Start (local)
+
+### 1. Create free MongoDB Atlas database
+
+1. Go to [mongodb.com/atlas](https://www.mongodb.com/atlas) → create free account
+2. Create a **free M0 cluster**
+3. Database Access → Add user (username + password)
+4. Network Access → Add IP `0.0.0.0/0` (allow from anywhere)
+5. Connect → Drivers → copy connection string, e.g.:
+   ```
+   mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/shopkeeper?retryWrites=true&w=majority
+   ```
+
+### 2. Run the app
 
 ```bash
-# Install dependencies
+cp .env.example server/.env
+# Edit server/.env and paste your MONGODB_URI
+
 npm run install:all
 
-# Terminal 1 — start API server
-npm run dev:server
+# Terminal 1
+MONGODB_URI="your-uri" JWT_SECRET="dev-secret" npm run dev:server
 
-# Terminal 2 — start React app
+# Terminal 2
 npm run dev:client
 ```
 
@@ -40,105 +56,55 @@ npm run dev:client
 - **Admin login:** http://localhost:5173/admin
 - **Default credentials:** `admin` / `admin123`
 
-## How it works when deployed (real users)
+## Deploy to Render (free)
 
-**Yes — once deployed, this is exactly how it works:**
+1. Create **MongoDB Atlas** cluster (steps above)
+2. Push repo to GitHub
+3. [render.com](https://render.com) → your service → **Environment**
+4. Add **`MONGODB_URI`** = your Atlas connection string
+5. Redeploy (or sync Blueprint)
 
-1. You deploy **one website** to a public URL (e.g. `https://my-shop.onrender.com`)
-2. The **shopkeeper (admin)** logs in at `/admin`, sets shop name, categories, and products
-3. **Anyone visiting that URL** instantly sees what the admin configured — no login needed for visitors
-4. Data is saved in the **SQLite database** on the server
+Your live URL: e.g. `https://shopkeeper-website-4y6v.onrender.com`
 
-> **Free tier note:** Render’s free plan does not include persistent disks. Shop data and uploaded images may reset when the app redeploys or restarts. For permanent storage, upgrade to a paid plan with a disk, or we can switch the app to a hosted database (e.g. Turso/PostgreSQL).
+- **Admin:** `/admin` → login `admin` / `admin123`
+- **Visitors:** open main URL, no login needed
+
+> Render free tier sleeps after inactivity (~50s wake delay). MongoDB Atlas free tier keeps your data permanently.
+
+### Environment variables
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
+| `JWT_SECRET` | Yes | Admin login token secret |
+| `NODE_ENV` | Auto | `production` on Render |
+| `PORT` | Auto | Set by Render |
+
+## How it works when deployed
 
 ```
-Shopkeeper (Admin)                    Visitors (Users)
-       │                                      │
-       ▼                                      ▼
-  /admin login ──► saves to DB ◄── reads from DB ──► browse products
-  add products         │                              view shop info
-  set shop details     │                              hamburger menu
-                       ▼
-                 shop.db + uploads/
+Shopkeeper (Admin)              MongoDB Atlas              Visitors (Users)
+       │                              │                          │
+       ▼                              ▼                          ▼
+  /admin login ──► shop settings, products, images ◄── browse shop
 ```
 
-**Important:** Right now this is **one shop per deployment**. Every visitor sees the same shop. If you want **many shopkeepers each with their own separate shop** on one platform (like `shop1.yoursite.com`, `shop2.yoursite.com`), that needs multi-tenant support — say the word and we can add that.
+Data and uploaded images persist in MongoDB even when Render restarts.
 
-## Deploy to Render (recommended, free tier)
-
-1. Push this project to **GitHub**
-2. Go to [render.com](https://render.com) → **New** → **Blueprint** (or Web Service)
-3. Connect your repo — Render reads `render.yaml` automatically
-4. Deploy. You get a URL like `https://shopkeeper-website.onrender.com`
-5. Open `/admin`, log in with `admin` / `admin123`, **change the password** (see below)
-6. Share the main URL with customers
-
-**Free tier:** Works without a paid disk. Data may be lost on redeploy/restart — fine for testing; use a paid disk or hosted DB for production.
-
-### Environment variables (production)
-
-| Variable | Purpose |
-|----------|---------|
-| `JWT_SECRET` | Secret for admin login tokens (auto-generated on Render) |
-| `NODE_ENV` | Set to `production` |
-| `PORT` | Set automatically by hosting platform |
-
-Copy `.env.example` for local production testing.
-
-## Deploy with Docker
-
-```bash
-docker build -t shopkeeper-website .
-docker run -p 3001:3001 -v shop-data:/data -e JWT_SECRET=your-secret shopkeeper-website
-```
-
-Open http://localhost:3001
-
-## Production build (local)
-
-```bash
-npm run install:all
-npm run build
-JWT_SECRET=your-secret NODE_ENV=production npm start
-```
-
-Single server serves both API and React app on port 3001.
-
-## Change admin password after deploy
-
-The default password is only for first setup. To change it, run on the server (or locally):
-
-```bash
-node -e "
-const bcrypt = require('bcryptjs');
-const db = require('better-sqlite3')(process.env.DATA_DIR ? process.env.DATA_DIR + '/shop.db' : './server/shop.db');
-const hash = bcrypt.hashSync('YOUR_NEW_PASSWORD', 10);
-db.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').run(hash);
-console.log('Password updated');
-"
-```
-
-Or we can add a "Change password" screen in the admin panel if you want.
-
+## Project Structure
 
 ```
 safe/
-├── server/          # Node.js API
-│   ├── index.js
-│   ├── db.js        # SQLite schema
-│   └── routes/      # public + admin APIs
+├── server/          # Node.js API + MongoDB models
 └── client/          # React frontend
-    └── src/
-        ├── pages/   # Home, Category, Contact, Admin
-        └── components/
 ```
 
 ## Admin Workflow
 
 1. Log in at `/admin`
-2. **Shop Settings** — set website name, your name, mobile, address, city, colors
-3. **Menu Categories** — add tabs like "Groceries", "Electronics" (these appear in the hamburger menu)
-4. **Products** — add products to each category with images and custom tile styling
+2. **Shop Settings** — website name, contact details, colors
+3. **Menu Categories** — hamburger menu tabs
+4. **Products** — add products with images and custom tiles
 
 ## API Endpoints
 
@@ -147,6 +113,7 @@ safe/
 | GET | `/api/public/settings` | Shop settings |
 | GET | `/api/public/tabs` | Menu categories |
 | GET | `/api/public/tabs/:id/products` | Products in category |
+| GET | `/api/public/files/:id` | Uploaded image |
 | POST | `/api/admin/login` | Admin login |
 | PUT | `/api/admin/settings` | Update shop settings |
 | CRUD | `/api/admin/tabs` | Manage categories |
