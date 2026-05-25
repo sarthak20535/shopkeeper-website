@@ -1,0 +1,62 @@
+.product-tile {
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.product-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.tile-image-wrap {
+  aspect-ratio: 4 / 3;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.tile-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tile-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.tile-body {
+  padding: 1rem;
+}
+
+.tile-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.tile-size,
+.tile-price {
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+
+.tile-price {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.tile-desc {
+  font-size: 0.85rem;
+  opacity: 0.85;
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
